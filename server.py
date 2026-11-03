@@ -29,7 +29,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = urlsplit(self.path).path
         if path == "/api/health":
-            return self.send_json(200, {"ok": True, "mode": "llm+policy" if ROUTER else "rules", "version": KB["version"]})
+            return self.send_json(200, {"ok": True, "mode": "llm-configured" if ROUTER else "rules", "version": KB["version"]})
         if path == "/api/policy":
             return self.send_json(200, {"knowledge_base": KB, "system_prompt": system_prompt()})
         files = {

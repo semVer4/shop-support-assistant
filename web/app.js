@@ -31,11 +31,11 @@ async function ask(question) {
   send.textContent = 'Отвечаю…';
   addMessage('user', question);
   try {
-    const response = await fetch('/api/chat', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({message: question}), signal: AbortSignal.timeout(22000)});
+    const response = await fetch('/api/chat', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({message: question}), signal: AbortSignal.timeout(100000)});
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'Не удалось получить ответ');
     addMessage('assistant', data.answer, data.sources);
-    mode.textContent = data.mode === 'llm+policy' ? 'LLM разбирает вопрос · ответ проверяется по регламенту' : data.mode === 'rules-fallback' ? 'LLM недоступна · ответ сформирован автономно по регламенту' : 'Автономный режим · без вызовов LLM';
+    mode.textContent = data.mode === 'llm+policy' ? `Ответ с LLM${data.llm?.model ? ': ' + data.llm.model : ''} · проверен по регламенту` : data.mode === 'rules-fallback' ? 'LLM недоступна · ответ сформирован автономно по регламенту' : 'Автономный режим · без вызовов LLM';
     input.value = '';
   } catch (problem) {
     error.textContent = problem.name === 'TimeoutError' ? 'Ответ не получен вовремя. Попробуйте ещё раз.' : problem.message;
@@ -50,7 +50,7 @@ form.addEventListener('submit', event => { event.preventDefault(); ask(input.val
 document.querySelectorAll('[data-question]').forEach(button => button.addEventListener('click', () => { input.value = button.dataset.question; ask(input.value); }));
 addMessage('assistant', 'Здравствуйте! Что хотите узнать о наушниках X1, доставке или возврате?');
 Promise.all([fetch('/api/health').then(r => r.json()), fetch('/api/policy').then(r => r.json())]).then(([health, policy]) => {
-  mode.textContent = health.mode === 'llm+policy' ? 'LLM подключена · ответ проверяется по регламенту' : 'Автономный режим · без вызовов LLM';
+  mode.textContent = health.mode === 'llm-configured' ? 'LLM настроена · готова к проверке вопросом' : 'Автономный режим · без вызовов LLM';
   for (const rule of policy.knowledge_base.rules) {
     const item = document.createElement('li'); item.textContent = rule.text; document.querySelector('#rules').append(item);
   }

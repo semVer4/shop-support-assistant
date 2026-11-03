@@ -4,6 +4,7 @@ from pathlib import Path
 import json
 import re
 import unicodedata
+from llm import RoutingDecision
 
 ROOT = Path(__file__).resolve().parent
 KB = json.loads((ROOT / "knowledge_base.json").read_text(encoding="utf-8"))
@@ -21,7 +22,7 @@ def normalize(text):
 
 
 def elapsed_days(text):
-    matches = re.findall(r"\b(\d{1,4})\s*(?:[-–]?\s*(?:й|ый|ой|го|ом|му)\s*)?(?:день|дня|дней|дню|дне)\b", text)
+    matches = re.findall(r"\b(\d{1,4})\s*(?:[-–]?\s*(?:й|ый|ой|го|ом|му)\s*)?(?:день|дня|дней|дню|дне|суток|сутки)\b", text)
     days = {int(number) for number in matches}
     for word, number in (("шестнадцат", 16), ("пятнадцат", 15), ("четырнадцат", 14), ("тринадцат", 13)):
         if re.search(word + r"\w*\s+(?:день|дня|дней|дню|дне)", text):
@@ -74,9 +75,10 @@ class Reply:
     sources: list[str]
     mode: str
     needs_human: bool
+    llm: dict | None = None
 
     def as_dict(self):
-        return {"answer": self.answer, "sources": self.sources, "mode": self.mode, "needs_human": self.needs_human}
+        return {"answer": self.answer, "sources": self.sources, "mode": self.mode, "needs_human": self.needs_human, "llm": self.llm}
 
 
 def answer_question(message, router=None):
@@ -87,12 +89,18 @@ def answer_question(message, router=None):
     text = normalize(message)
     topics, order, order_id, unknown = parse_question(text)
     mode = "rules"
+    trace = None
     if router is not None:
         try:
-            proposed = validate_topics(router(message, system_prompt()))
-            # Unambiguous policy cases stay independent of model routing.
-            # A model cannot turn an ordinary overdue return into a defect case.
-            proposed -= {"discount", "return", "defect"}
+            decision = router(message, system_prompt())
+            proposed = validate_topics(decision.plan if isinstance(decision, RoutingDecision) else decision)
+            if isinstance(decision, RoutingDecision):
+                trace = decision.trace
+            # A model cannot turn a clearly ordinary return into a defect case.
+            if "return" in topics and "defect" not in topics:
+                proposed.discard("defect")
+            if topics and not unknown:
+                proposed.discard("unknown")
             if not topics and proposed != {"greeting"}:
                 unknown = True
             topics = proposed | topics
@@ -142,5 +150,5 @@ def answer_question(message, router=None):
     if unknown or "unknown" in topics or not parts:
         add("Для остальной части вопроса в регламенте нет данных. Это нужно уточнить у сотрудника магазина." if parts else "В регламенте нет информации для ответа на этот вопрос. Уточните, пожалуйста, у сотрудника магазина.")
         needs_human = True
-    return Reply("\n\n".join(parts), list(dict.fromkeys(sources)), mode, needs_human)
+    return Reply("\n\n".join(parts), list(dict.fromkeys(sources)), mode, needs_human, trace)
 

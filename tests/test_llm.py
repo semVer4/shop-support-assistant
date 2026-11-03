@@ -2,7 +2,7 @@ from io import BytesIO
 from unittest.mock import patch
 import json
 import unittest
-from llm import configured_router
+from llm import configured_router, local_router
 
 
 class LlmAdapterTests(unittest.TestCase):
@@ -15,7 +15,8 @@ class LlmAdapterTests(unittest.TestCase):
         payload = {"status": "completed", "output": [{"type": "message", "content": [{"type": "output_text", "text": '{"topics":["delivery"]}'}]}]}
         with patch("llm.urlopen", return_value=BytesIO(json.dumps(payload).encode())) as mocked:
             result = configured_router()("Доставка?", "system instructions")
-            self.assertEqual(result, {"topics": ["delivery"]})
+            self.assertEqual(result.plan, {"topics": ["delivery"]})
+            self.assertEqual(result.trace["provider"], "openai")
             request = mocked.call_args.args[0]
             sent = json.loads(request.data)
             self.assertEqual(request.full_url, "https://api.openai.com/v1/responses")
@@ -29,6 +30,23 @@ class LlmAdapterTests(unittest.TestCase):
         with patch("llm.urlopen", return_value=BytesIO(b'{"status":"incomplete","output":[]}')):
             with self.assertRaises(ValueError):
                 configured_router()("hi", "system")
+
+    @patch.dict("os.environ", {"LLM_PROVIDER": "local"}, clear=True)
+    def test_real_local_api_adapter(self):
+        data = {"id": "local-test-response", "model": "qwen2.5-1.5b-instruct", "choices": [{"finish_reason": "stop", "message": {"content": '{"topics":["return"]}'}}], "usage": {"prompt_tokens": 50, "completion_tokens": 10, "total_tokens": 60}}
+        with patch("llm.urlopen", return_value=BytesIO(json.dumps(data).encode())) as mocked:
+            result = configured_router()("вернуть товар", "rules")
+            self.assertEqual(result.plan, {"topics": ["return"]})
+            self.assertEqual(result.trace["response_id"], "local-test-response")
+            self.assertEqual(result.trace["usage"]["total_tokens"], 60)
+            request = mocked.call_args.args[0]
+            self.assertEqual(request.full_url, "http://127.0.0.1:8089/v1/chat/completions")
+            self.assertEqual(json.loads(request.data)["response_format"]["type"], "json_schema")
+
+    @patch.dict("os.environ", {"LOCAL_LLM_URL": "https://other.example"}, clear=True)
+    def test_local_provider_cannot_send_to_external_host(self):
+        with self.assertRaises(ValueError):
+            local_router()
 
 
 if __name__ == "__main__":

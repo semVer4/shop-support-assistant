@@ -1,0 +1,18 @@
+{
+  "runtime": "llama.cpp b12069 CPU x64",
+  "model": "Qwen2.5-1.5B-Instruct Q4_K_M",
+  "verified_files": [
+    {
+      "name": "llama-cpu.zip",
+      "source": "https://github.com/ggml-org/llama.cpp/releases/download/b12069/llama-b12069-bin-win-cpu-x64.zip",
+      "sha256": "5658d79020c5b6a32f1e267c548383942d7c6c1784814f23b9da33d1f4eb0ff2",
+      "size": 24609224
+    },
+    {
+      "name": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+      "source": "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf",
+      "sha256": "6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e",
+      "size": 1117320736
+    }
+  ]
+}
