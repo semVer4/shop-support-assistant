@@ -6,7 +6,7 @@ import argparse
 import json
 import os
 import time
-from assistant import answer_question, KB, system_prompt
+from assistant import answer_question, system_prompt
 from llm import configured_model, ModelResult
 from token_store import load_token
 
@@ -65,10 +65,8 @@ def handle_update(update, api, router):
         command = text.split(maxsplit=1)[0].split("@")[0] if text.strip() else ""
         if command in {"/start", "/help"}:
             response = "Здравствуйте! Могу подсказать цену и наличие наушников X1, условия доставки и возврата. Напишите вопрос или выберите один из трёх примеров ниже."
-        elif command == "/rules":
-            response = "Регламент магазина:\n\n" + "\n".join("- " + rule["text"] for rule in KB["rules"])
         elif command.startswith("/"):
-            response = "Доступны /start, /help и /rules. Вопрос о магазине можно написать обычным сообщением."
+            response = "Доступны /start и /help. Вопрос о магазине можно написать обычным сообщением."
         else:
             try:
                 api.call("sendChatAction", {"chat_id": chat_id, "action": "typing"})
@@ -130,7 +128,7 @@ if __name__ == "__main__":
     print(json.dumps(info, ensure_ascii=False), flush=True)
     if args.check:
         raise SystemExit(0)
-    api.call("setMyCommands", {"commands": [{"command": "start", "description": "Начать диалог"}, {"command": "help", "description": "Что умеет помощник"}, {"command": "rules", "description": "Регламент магазина"}]})
+    api.call("setMyCommands", {"commands": [{"command": "start", "description": "Начать диалог"}, {"command": "help", "description": "Что умеет помощник"}]})
     offset_path = ROOT / ".runtime" / "telegram-offset.json"
     offset = read_offset(offset_path)
     print("Telegram polling started. Private text messages only; message content is not logged.", flush=True)
