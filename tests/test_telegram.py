@@ -5,7 +5,7 @@ import json
 import unittest
 from assistant import Reply
 from telegram_bot import TelegramAPI, TelegramError, handle_update, startup
-from llm import RoutingDecision
+from llm import ModelResult
 from token_store import validate_token
 
 
@@ -36,10 +36,15 @@ class TelegramTests(unittest.TestCase):
 
     def test_unavailable_model_is_not_presented_as_ai_response(self):
         api = Mock()
-        with patch("telegram_bot.answer_question", return_value=Reply("fallback", [], "rules-fallback", True)):
+        with patch("telegram_bot.answer_question", return_value=Reply("fallback", [], "model-unavailable", True)):
             response = handle_update(private_message("Доставка?"), api, Mock())
         self.assertIn("не получается обратиться к нейросети", response)
         self.assertNotIn("fallback", response)
+
+    def test_safety_rejection_is_delivered_as_safety_message(self):
+        with patch("telegram_bot.answer_question", return_value=Reply("Ответ не подтверждён, уточните у сотрудника.", [], "safety-fallback", True, {"model": "test"})):
+            result = handle_update(private_message("Доставка?"), Mock(), Mock())
+        self.assertEqual(result, "Ответ не подтверждён, уточните у сотрудника.")
 
     def test_group_and_bot_messages_are_ignored(self):
         for update in (private_message("Hello", chat={"id": 42, "type": "group"}), private_message("Hello", **{"from": {"is_bot": True}}), {"edited_message": {}}):

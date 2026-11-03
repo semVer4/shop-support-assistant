@@ -7,7 +7,7 @@ import json
 import os
 import time
 from assistant import answer_question, KB, system_prompt
-from llm import configured_router, RoutingDecision
+from llm import configured_model, ModelResult
 from token_store import load_token
 
 ROOT = Path(__file__).resolve().parent
@@ -79,7 +79,9 @@ def handle_update(update, api, router):
             except ValueError:
                 response = "Напишите текстовый вопрос длиной от 1 до 2000 символов."
             else:
-                if reply.mode != "llm+policy" or not reply.llm:
+                if reply.mode == "safety-fallback":
+                    response = reply.answer
+                elif reply.mode != "llm+policy" or not reply.llm:
                     response = "Сейчас не получается обратиться к нейросети. Попробуйте, пожалуйста, немного позже."
                 else:
                     response = reply.answer
@@ -107,8 +109,8 @@ def startup(api, router):
         raise RuntimeError("У бота настроен webhook. Он не изменён; для этого прототипа нужен отдельный бот без webhook")
     if router is None:
         raise RuntimeError("Для Telegram-бота нужна настоящая LLM")
-    decision = router("Здравствуйте", system_prompt())
-    if not isinstance(decision, RoutingDecision) or not decision.trace.get("response_id"):
+    decision = router.generate("Здравствуйте", system_prompt())
+    if not isinstance(decision, ModelResult) or not decision.trace.get("response_id"):
         raise RuntimeError("Не удалось проверить настоящую LLM")
     return {"username": user["username"], "url": "https://t.me/" + user["username"], "model": decision.trace["model"]}
 
@@ -118,7 +120,7 @@ if __name__ == "__main__":
     parser.add_argument("--check", action="store_true", help="Verify credentials and the model, without receiving messages")
     args = parser.parse_args()
     os.environ.setdefault("LLM_PROVIDER", "local")
-    api, router = TelegramAPI(load_token()), configured_router()
+    api, router = TelegramAPI(load_token()), configured_model()
     try:
         info = startup(api, router)
     except TelegramError as error:

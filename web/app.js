@@ -35,7 +35,7 @@ async function ask(question) {
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'Не удалось получить ответ');
     addMessage('assistant', data.answer, data.sources);
-    mode.textContent = data.mode === 'llm+policy' ? `Ответ с LLM${data.llm?.model ? ': ' + data.llm.model : ''} · проверен по регламенту` : data.mode === 'rules-fallback' ? 'LLM недоступна · ответ сформирован автономно по регламенту' : 'Автономный режим · без вызовов LLM';
+    mode.textContent = data.answer_origin === 'model' ? `Ответ сформулирован ${data.llm?.model ?? 'моделью'} · проверка пройдена` : data.mode === 'safety-fallback' ? 'Ответ модели отклонён · показано защитное сообщение' : 'Нейросеть недоступна';
     input.value = '';
   } catch (problem) {
     error.textContent = problem.name === 'TimeoutError' ? 'Ответ не получен вовремя. Попробуйте ещё раз.' : problem.message;
@@ -50,7 +50,7 @@ form.addEventListener('submit', event => { event.preventDefault(); ask(input.val
 document.querySelectorAll('[data-question]').forEach(button => button.addEventListener('click', () => { input.value = button.dataset.question; ask(input.value); }));
 addMessage('assistant', 'Здравствуйте! Что хотите узнать о наушниках X1, доставке или возврате?');
 Promise.all([fetch('/api/health').then(r => r.json()), fetch('/api/policy').then(r => r.json())]).then(([health, policy]) => {
-  mode.textContent = health.mode === 'llm-configured' ? 'LLM настроена · готова к проверке вопросом' : 'Автономный режим · без вызовов LLM';
+  mode.textContent = health.mode === 'llm-configured' ? 'Нейросеть настроена · готова к вопросу' : 'Нейросеть не подключена';
   for (const rule of policy.knowledge_base.rules) {
     const item = document.createElement('li'); item.textContent = rule.text; document.querySelector('#rules').append(item);
   }

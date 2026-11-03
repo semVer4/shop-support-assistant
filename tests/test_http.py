@@ -4,7 +4,9 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 import json
 import unittest
+from unittest.mock import patch
 from server import Handler
+from helpers import FakeModel, draft
 
 
 class HttpTests(unittest.TestCase):
@@ -23,10 +25,11 @@ class HttpTests(unittest.TestCase):
 
     def test_chat_and_policy(self):
         request = Request(self.base + "/api/chat", data=json.dumps({"message": "доставка заказа 1842"}).encode(), headers={"Content-Type": "application/json"})
-        with urlopen(request) as response:
+        model = FakeModel(draft("Нет доступа к базе заказов, не могу проверить статус заказа 1842.", needs_human=True))
+        with patch("server.MODEL", model), urlopen(request) as response:
             result = json.load(response)
-            self.assertIn("нет доступа к базе", result["answer"])
-            self.assertEqual(result["sources"], ["delivery"])
+            self.assertIn("Нет доступа к базе", result["answer"])
+            self.assertEqual(result["answer_origin"], "model")
         with urlopen(self.base + "/api/policy") as response:
             self.assertEqual(len(json.load(response)["knowledge_base"]["rules"]), 6)
 

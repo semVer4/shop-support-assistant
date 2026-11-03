@@ -15,10 +15,13 @@ if __name__ == "__main__":
     parser.add_argument("--model-port", type=int, default=8089)
     parser.add_argument("--port", type=int, default=8087)
     parser.add_argument("--model-only", action="store_true")
+    parser.add_argument("--runtime-dir", type=Path, default=ROOT / ".runtime")
+    parser.add_argument("--device", default="Vulkan0")
+    parser.add_argument("--cpu", action="store_true")
     args = parser.parse_args()
-    runtime = ROOT / ".runtime"
-    binaries = list((runtime / "llama").rglob("llama-server.exe"))
-    model = runtime / "qwen2.5-1.5b-instruct-q4_k_m.gguf"
+    runtime = args.runtime_dir
+    binaries = list((runtime / "llama-vulkan").rglob("llama-server.exe"))
+    model = runtime / "Qwen3.5-2B-Q4_K_M.gguf"
     if len(binaries) != 1 or not model.is_file():
         raise SystemExit("Prepare the runtime first: python setup_local_llm.py")
     base = f"http://127.0.0.1:{args.model_port}"
@@ -28,15 +31,19 @@ if __name__ == "__main__":
         pass
     else:
         raise SystemExit(f"Port {args.model_port} already has a server; choose --model-port")
-    log = (runtime / "server.log").open("w", encoding="utf-8")
-    command = [str(binaries[0]), "-m", str(model), "--alias", "qwen2.5-1.5b-instruct", "--host", "127.0.0.1", "--port", str(args.model_port), "-c", "4096", "--parallel", "1", "--threads", "4", "-ngl", "0"]
+    log = (runtime / "generation-server.log").open("w", encoding="utf-8")
+    command = [str(binaries[0]), "-m", str(model), "--alias", "qwen3.5-2b", "--host", "127.0.0.1", "--port", str(args.model_port), "-c", "4096", "--parallel", "1", "--threads", "4", "-ngl", "auto", "--jinja"]
+    if args.cpu:
+        command[command.index("-ngl") + 1] = "0"
+    else:
+        command.extend(["--device", args.device])
     process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
     app = None
     try:
         deadline = time.monotonic() + 90
         while time.monotonic() < deadline:
             if process.poll() is not None:
-                raise RuntimeError("Model server stopped. See .runtime/server.log")
+                raise RuntimeError("Model server stopped. See .runtime/generation-server.log")
             try:
                 with urlopen(base + "/health", timeout=1) as response:
                     if response.status == 200:
@@ -44,7 +51,7 @@ if __name__ == "__main__":
             except OSError:
                 time.sleep(0.5)
         else:
-            raise TimeoutError("Model did not become ready. See .runtime/server.log")
+            raise TimeoutError("Model did not become ready. See .runtime/generation-server.log")
         print(f"Real local LLM ready: {base}", flush=True)
         if args.model_only:
             process.wait()

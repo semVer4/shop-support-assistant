@@ -1,4 +1,4 @@
-"""Real LLM adapters. Models classify requests; policy code supplies the facts."""
+"""Generate customer-facing text with a constrained JSON response format."""
 from dataclasses import dataclass
 import json
 import os
@@ -6,87 +6,89 @@ import time
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
-SCHEMA = {
+SOURCE_IDS = ["product", "delivery", "return", "opened", "defect", "discount"]
+ANSWER_SCHEMA = {
     "type": "object",
-    "properties": {"topics": {"type": "array", "items": {"type": "string", "enum": ["product", "delivery", "return", "defect", "discount", "greeting", "unknown"]}, "minItems": 1, "maxItems": 7}},
-    "required": ["topics"],
+    "properties": {
+        "answer": {"type": "string"},
+        "source_ids": {"type": "array", "items": {"type": "string", "enum": SOURCE_IDS}, "maxItems": 6},
+        "needs_human": {"type": "boolean"},
+    },
+    "required": ["answer", "source_ids", "needs_human"],
     "additionalProperties": False,
 }
 
 
 @dataclass
-class RoutingDecision:
-    plan: dict
+class ModelResult:
+    value: dict
     trace: dict
 
 
-def local_router():
-    base = os.environ.get("LOCAL_LLM_URL", "http://127.0.0.1:8089").rstrip("/")
-    if urlsplit(base).hostname not in {"127.0.0.1", "localhost", "::1"}:
-        raise ValueError("Local LLM URL must use a loopback address")
-    model = os.environ.get("LOCAL_LLM_MODEL", "qwen2.5-1.5b-instruct")
+class LanguageModel:
+    def __init__(self, provider, model, key=None, base=None):
+        self.provider, self.model, self._key = provider, model, key
+        self.base = base
+        if provider == "local" and (urlsplit(base).scheme != "http" or urlsplit(base).hostname not in {"127.0.0.1", "localhost", "::1"}):
+            raise ValueError("Local model must use HTTP on a loopback address")
 
-    def classify(message, prompt):
-        payload = {
-            "model": model,
-            "messages": [{"role": "system", "content": prompt}, {"role": "user", "content": message}],
-            "temperature": 0,
-            "seed": 42,
-            "max_tokens": 160,
-            "stream": False,
-            "response_format": {"type": "json_schema", "json_schema": {"name": "support_topics", "strict": True, "schema": SCHEMA}},
-        }
-        request = Request(base + "/v1/chat/completions", data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"}, method="POST")
+    def request(self, system, message, schema, purpose):
+        headers = {"Content-Type": "application/json"}
+        if self.provider == "local":
+            url = self.base.rstrip("/") + "/v1/chat/completions"
+            payload = {
+                "model": self.model,
+                "messages": [{"role": "system", "content": system}, {"role": "user", "content": message}],
+                "temperature": 0,
+                "top_p": 0.95, "repeat_penalty": 1.05,
+                "seed": 42, "max_tokens": 320, "stream": False,
+                "chat_template_kwargs": {"enable_thinking": False},
+                "reasoning_effort": "none",
+                "response_format": {"type": "json_schema", "json_schema": {"name": purpose, "strict": True, "schema": schema}},
+            }
+        else:
+            url = "https://api.openai.com/v1/responses"
+            headers["Authorization"] = "Bearer " + self._key
+            payload = {
+                "model": self.model, "store": False,
+                "input": [{"role": "system", "content": system}, {"role": "user", "content": message}],
+                "text": {"format": {"type": "json_schema", "name": purpose, "strict": True, "schema": schema}},
+            }
+        request = Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
         started = time.monotonic()
-        with urlopen(request, timeout=90) as response:
+        with urlopen(request, timeout=45) as response:
             data = json.load(response)
-        choice = data["choices"][0]
-        if choice.get("finish_reason") != "stop":
-            raise ValueError("Incomplete local model response")
-        plan = json.loads(choice["message"]["content"])
-        return RoutingDecision(plan, {
-            "provider": "llama.cpp", "model": data.get("model", model),
-            "response_id": data["id"], "usage": data.get("usage", {}),
+        if self.provider == "local":
+            if data.get("model") and data["model"] != self.model:
+                raise ValueError("Unexpected local model")
+            choice = data["choices"][0]
+            if choice.get("finish_reason") != "stop":
+                raise ValueError("Incomplete model output")
+            value = json.loads(choice["message"]["content"])
+        else:
+            if data.get("status") != "completed":
+                raise ValueError("Incomplete model output")
+            chunks = [p["text"] for item in data.get("output", []) if item.get("type") == "message" for p in item.get("content", []) if p.get("type") == "output_text"]
+            if not chunks:
+                raise ValueError("Model refused or returned no text")
+            value = json.loads("".join(chunks))
+        return ModelResult(value, {
+            "provider": "llama.cpp" if self.provider == "local" else "openai",
+            "model": data.get("model", self.model), "response_id": data.get("id"),
+            "usage": data.get("usage", {}), "purpose": purpose,
             "duration_ms": round((time.monotonic() - started) * 1000),
-            "model_topics": plan.get("topics"),
         })
-    return classify
 
+    def generate(self, message, system):
+        return self.request(system, message, ANSWER_SCHEMA, "answer")
 
-def configured_router():
+def configured_model():
     provider = os.environ.get("LLM_PROVIDER", "openai")
     if provider == "local":
-        return local_router()
+        return LanguageModel("local", os.environ.get("LOCAL_LLM_MODEL", "qwen3.5-2b"), base=os.environ.get("LOCAL_LLM_URL", "http://127.0.0.1:8089"))
     if provider == "rules":
         return None
     if provider != "openai":
         raise ValueError("Unknown LLM_PROVIDER")
     key, model = os.environ.get("OPENAI_API_KEY"), os.environ.get("OPENAI_MODEL")
-    if not key or not model:
-        return None
-
-    def classify(message, prompt):
-        payload = {
-            "model": model,
-            "store": False,
-            "input": [{"role": "system", "content": prompt}, {"role": "user", "content": message}],
-            "text": {"format": {"type": "json_schema", "name": "support_topics", "strict": True, "schema": SCHEMA}},
-        }
-        request = Request("https://api.openai.com/v1/responses", data=json.dumps(payload).encode("utf-8"), headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"}, method="POST")
-        started = time.monotonic()
-        with urlopen(request, timeout=30) as response:
-            data = json.load(response)
-        if data.get("status") != "completed":
-            raise ValueError("Incomplete model response")
-        chunks = [part["text"] for item in data.get("output", []) if item.get("type") == "message" for part in item.get("content", []) if part.get("type") == "output_text"]
-        if not chunks:
-            raise ValueError("No structured classifier output")
-        plan = json.loads("".join(chunks))
-        return RoutingDecision(plan, {
-            "provider": "openai", "model": data.get("model", model),
-            "response_id": data.get("id"), "usage": data.get("usage", {}),
-            "duration_ms": round((time.monotonic() - started) * 1000),
-            "model_topics": plan.get("topics"),
-        })
-    return classify
-
+    return LanguageModel("openai", model, key=key) if key and model else None

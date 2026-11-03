@@ -5,10 +5,10 @@ from urllib.parse import urlsplit
 import argparse
 import json
 from assistant import answer_question, KB, system_prompt
-from llm import configured_router
+from llm import configured_model
 
 ROOT = Path(__file__).resolve().parent
-ROUTER = configured_router()
+MODEL = configured_model()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -29,7 +29,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = urlsplit(self.path).path
         if path == "/api/health":
-            return self.send_json(200, {"ok": True, "mode": "llm-configured" if ROUTER else "rules", "version": KB["version"]})
+            return self.send_json(200, {"ok": True, "mode": "llm-configured" if MODEL else "model-unavailable", "version": KB["version"]})
         if path == "/api/policy":
             return self.send_json(200, {"knowledge_base": KB, "system_prompt": system_prompt()})
         files = {
@@ -59,7 +59,7 @@ class Handler(BaseHTTPRequestHandler):
             data = json.loads(self.rfile.read(length))
             if not isinstance(data, dict) or set(data) != {"message"}:
                 raise ValueError("Ожидается объект с полем message")
-            reply = answer_question(data["message"], ROUTER)
+            reply = answer_question(data["message"], MODEL)
         except (ValueError, UnicodeDecodeError) as error:
             return self.send_json(400, {"error": str(error)})
         return self.send_json(200, reply.as_dict())
@@ -74,7 +74,7 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=8087)
     args = parser.parse_args()
     server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
-    print(f"Open http://127.0.0.1:{args.port} | mode={'llm+policy' if ROUTER else 'rules'}", flush=True)
+    print(f"Open http://127.0.0.1:{args.port} | mode={'llm+policy' if MODEL else 'model-unavailable'}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

@@ -1,5 +1,6 @@
-"""Download a portable CPU runtime and model from their official repositories."""
+"""Download and verify the portable Vulkan runtime and Qwen GGUF model."""
 from pathlib import Path
+import argparse
 from urllib.request import Request, urlopen
 from zipfile import ZipFile
 import hashlib
@@ -8,8 +9,8 @@ import time
 
 ROOT = Path(__file__).resolve().parent / ".runtime"
 ASSETS = (
-    ("llama-cpu.zip", "https://github.com/ggml-org/llama.cpp/releases/download/b12069/llama-b12069-bin-win-cpu-x64.zip", "5658d79020c5b6a32f1e267c548383942d7c6c1784814f23b9da33d1f4eb0ff2", 24609224),
-    ("qwen2.5-1.5b-instruct-q4_k_m.gguf", "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf", "6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e", 1117320736),
+    ("llama-vulkan.zip", "https://github.com/ggml-org/llama.cpp/releases/download/b12069/llama-b12069-bin-win-vulkan-x64.zip", "e1b1c4e5481fe88e3f49f97908b53bb7699ad8aa3f6332a58f944e7a8f068b33", 37554286),
+    ("Qwen3.5-2B-Q4_K_M.gguf", "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf", "aaf42c8b7c3cab2bf3d69c355048d4a0ee9973d48f16c731c0520ee914699223", 1280835840),
 )
 
 
@@ -45,9 +46,12 @@ def download(name, url, expected_hash, expected_size):
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--runtime-dir", type=Path, default=ROOT)
+    ROOT = parser.parse_args().runtime_dir.resolve()
     ROOT.mkdir(parents=True, exist_ok=True)
     archive = download(*ASSETS[0])
-    runtime = ROOT / "llama"
+    runtime = ROOT / "llama-vulkan"
     runtime.mkdir(exist_ok=True)
     with ZipFile(archive) as files:
         for member in files.infolist():
@@ -56,5 +60,5 @@ if __name__ == "__main__":
                 raise ValueError("Unexpected archive path")
         files.extractall(runtime)
     download(*ASSETS[1])
-    (ROOT / "verified.json").write_text(json.dumps({"runtime": "llama.cpp b12069 CPU x64", "model": "Qwen2.5-1.5B-Instruct Q4_K_M", "verified_files": [{"name": name, "source": url, "sha256": sha, "size": size} for name, url, sha, size in ASSETS]}, indent=2), encoding="utf-8")
+    (ROOT / "verified-generation.json").write_text(json.dumps({"runtime": "llama.cpp b12069 Vulkan x64", "model": "Qwen3.5-2B Q4_K_M (Unsloth GGUF)", "verified_files": [{"name": name, "source": url, "sha256": sha, "size": size} for name, url, sha, size in ASSETS]}, indent=2), encoding="utf-8")
     print("Local runtime ready. Start: python start_local_llm.py", flush=True)
