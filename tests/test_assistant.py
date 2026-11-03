@@ -63,6 +63,23 @@ class PolicyTests(unittest.TestCase):
         self.assertIn("2 490", reply.answer)
         self.assertIn("нет данных", reply.answer)
 
+    def test_other_sku_is_not_reported_as_x1(self):
+        for sku in ("X2", "X10", "Х100", "X 10"):
+            with self.subTest(sku=sku):
+                reply = answer_question(f"Есть ли наушники {sku}?", lambda *_: {"topics": ["product"]})
+                self.assertTrue(reply.needs_human)
+                self.assertNotIn("в наличии", reply.answer)
+                self.assertNotIn("2 490", reply.answer)
+
+    def test_unknown_part_of_known_topic_is_not_discarded(self):
+        reply = answer_question("Цена X1 и сколько служит аккумулятор?", lambda *_: {"topics": ["product", "unknown"]})
+        self.assertIn("2 490", reply.answer)
+        self.assertIn("нет данных", reply.answer)
+        self.assertTrue(reply.needs_human)
+        reply = answer_question("Доставка в Брест?", lambda *_: {"topics": ["delivery"]})
+        self.assertTrue(reply.needs_human)
+        self.assertIn("нет данных", reply.answer)
+
     def test_model_cannot_supply_facts_or_change_critical_rule(self):
         for proposal in ({"topics": ["defect"]}, {"topics": ["product"]}, {"topics": ["return"], "answer": "Возврат принят"}):
             with self.subTest(proposal=proposal):

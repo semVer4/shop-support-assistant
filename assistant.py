@@ -34,6 +34,10 @@ def elapsed_days(text):
     return days
 
 
+def other_product(text):
+    return any(number != "1" for number in re.findall(r"\b[xх]\s*(\d+)\b", text))
+
+
 def parse_question(text):
     topics = set()
     if re.search(r"скид|промокод|дисконт|дешевле|discount", text):
@@ -45,14 +49,17 @@ def parse_question(text):
     no_defect = re.sub(r"без\s+брака|без\s+дефектов|брака\s+нет|дефектов\s+нет|не\s+бракован\w*|\bисправн\w*", "", text)
     if re.search(r"брак|дефект|не\s*работа|неисправ|сломан|поломан", no_defect):
         topics.add("defect")
-    if re.search(r"цен[ауы]|стоит|стоимость|почем|налич|купить|есть\s+(?:ли\s+)?(?:у\s+вас\s+)?(?:x1|наушник)|x1", text):
+    if re.search(r"цен[ауы]|стоит|стоимость|почем|налич|купить|есть\s+(?:ли\s+)?(?:у\s+вас\s+)?(?:x1|наушник)|\bx1\b", text):
         topics.add("product")
     # Individual order data must never be replaced by the general delivery policy.
     order = bool(re.search(r"заказ|трек(?:инг)?|оплатил|списал|моя\s+посылк|мой\s+возврат", text))
     order_match = re.search(r"заказ\w*\s*(?:№|номер|#)?\s*(\d{1,12})\b", text)
     unknown = bool(re.search(r"цвет|сини|черн|белы|красн|серые|розов|зелен|гарант|адрес|город|минск|москв|совместим|bluetooth|блют|заряд|батаре|срок\s+экспертиз|сколько\s+длится\s+экспертиз|закон|юрист|стать[яеи]|бесплатн|стоимость\s+достав|сколько\s+стоит\s+достав|когда\s+именно|дат[аыу]\s+(?:выплат|зачисл)|(?:x|х)[2-9]\b", text))
-    if re.search(r"(?:x|х)[2-9]\b", text):
+    if other_product(text):
+        unknown = True
         topics.discard("product")
+    if re.search(r"аккум|водонепрон|влагозащ|\bipx?\d|(?:достав\w*|привез\w*)\s+(?:в|во|до|по)\s+[а-яa-z]", text):
+        unknown = True
     if re.search(r"стоимость\s+достав|сколько\s+стоит\s+достав", text) and "x1" not in text:
         topics.discard("product")
     if not topics and re.fullmatch(r"\s*(?:здравствуйте|привет|добрый\s+(?:день|вечер)|доброе\s+утро)[!.\s]*", text):
@@ -99,12 +106,12 @@ def answer_question(message, router=None):
             # A model cannot turn a clearly ordinary return into a defect case.
             if "return" in topics and "defect" not in topics:
                 proposed.discard("defect")
-            if topics and not unknown:
-                proposed.discard("unknown")
+            # Keep the model's unknown marker for mixed questions: a known topic
+            # does not make an unsupported attribute or destination known.
             if not topics and proposed != {"greeting"}:
                 unknown = True
             topics = proposed | topics
-            if re.search(r"(?:x|х)[2-9]\b", text):
+            if other_product(text):
                 topics.discard("product")
             mode = "llm+policy"
         except Exception:
